@@ -23,11 +23,9 @@ jobs:
 
       - name: Cache Gradle
         uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: "8.7"
 
       - name: Generate Gradle Wrapper (if missing)
-        run: gradle wrapper
+        run: ./gradlew --version
 
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug
@@ -53,11 +51,9 @@ jobs:
 
       - name: Cache Gradle
         uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: "8.7"
 
       - name: Generate Gradle Wrapper (if missing)
-        run: gradle wrapper
+        run: ./gradlew --version
 
       - name: Decode keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > ${{ github.workspace }}/keystore.jks

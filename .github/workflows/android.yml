@@ -24,6 +24,9 @@ jobs:
       - name: Cache Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
       - name: Generate Gradle Wrapper (if missing)
         run: ./gradlew --version
 
@@ -51,6 +54,9 @@ jobs:
 
       - name: Cache Gradle
         uses: gradle/actions/setup-gradle@v3
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
 
       - name: Generate Gradle Wrapper (if missing)
         run: ./gradlew --version

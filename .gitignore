@@ -20,3 +20,7 @@ local.properties
 
 # Logs
 *.log
+
+*.jks
+*.keystore
+*.b64

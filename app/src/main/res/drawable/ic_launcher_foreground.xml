@@ -3,13 +3,23 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Minimal wallet body -->
     <path
-        android:fillColor="#1B5E20"
-        android:pathData="M54,16C33.01,16 16,33.01 16,54s17.01,38 38,38s38,-17.01 38,-38S74.99,16 54,16z"/>
+        android:fillColor="#E2E8F0"
+        android:pathData="M26,36h56a8,8 0,0 1,8 8v20a8,8 0,0 1,-8 8H26a8,8 0,0 1,-8 -8V44a8,8 0,0 1,8 -8z"/>
+
+    <!-- Wallet inner pocket -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M36,56h36v8H36z"/>
+        android:fillColor="#0F172A"
+        android:pathData="M32,42h44a4,4 0,0 1,4 4v12a4,4 0,0 1,-4 4H32a4,4 0,0 1,-4 -4V46a4,4 0,0 1,4 -4z"/>
+
+    <!-- Card slot -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M50,36h8v36h-8z"/>
+        android:fillColor="#E2E8F0"
+        android:pathData="M38,48h24v4H38z"/>
+
+    <!-- Snap button -->
+    <path
+        android:fillColor="#E2E8F0"
+        android:pathData="M76,50a4,4 0,1 1,-8 0a4,4 0,0 1,8 0z"/>
 </vector>

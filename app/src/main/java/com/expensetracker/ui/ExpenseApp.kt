@@ -60,6 +60,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.expensetracker.MainViewModel
+import com.expensetracker.RateUiState
 import com.expensetracker.R
 import com.expensetracker.data.CardBrand
 import com.expensetracker.data.Currency
@@ -134,10 +135,15 @@ private data class NavItem(
 private fun AddExpenseScreen(viewModel: MainViewModel) {
     val form by viewModel.form.collectAsState()
     val error by viewModel.errorMessage.collectAsState()
+    val rateState by viewModel.usdRateState.collectAsState()
 
     var paymentExpanded by remember { mutableStateOf(false) }
     var currencyExpanded by remember { mutableStateOf(false) }
     var cardBrandExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(form.currency, form.date) {
+        viewModel.refreshRateIfNeeded()
+    }
 
     Column(
         modifier = Modifier
@@ -197,12 +203,38 @@ private fun AddExpenseScreen(viewModel: MainViewModel) {
                 }
 
                 if (form.currency == Currency.USD) {
-                    OutlinedTextField(
-                        value = form.manualRate,
-                        onValueChange = viewModel::updateManualRate,
-                        label = { Text(stringResource(id = R.string.manual_rate)) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    when (rateState) {
+                        RateUiState.Loading -> Text(
+                            text = stringResource(id = R.string.rate_loading),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        is RateUiState.Success -> {
+                            val rate = (rateState as RateUiState.Success).rate
+                            Text(
+                                text = stringResource(id = R.string.rate_label, rate),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = stringResource(id = R.string.rate_attribution),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp
+                            )
+                        }
+                        is RateUiState.Error -> {
+                            val message = (rateState as RateUiState.Error).message
+                            Text(
+                                text = stringResource(id = R.string.rate_error, message),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            OutlinedTextField(
+                                value = form.manualRate,
+                                onValueChange = viewModel::updateManualRate,
+                                label = { Text(stringResource(id = R.string.manual_rate)) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        RateUiState.Idle -> Unit
+                    }
                 }
 
                 if (form.paymentType == PaymentType.CARD) {
@@ -600,6 +632,11 @@ private fun EditExpenseDialog(
                         onValueChange = onManualRateChange,
                         label = { Text(stringResource(id = R.string.manual_rate)) },
                         modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        text = stringResource(id = R.string.rate_attribution),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp
                     )
                 }
 

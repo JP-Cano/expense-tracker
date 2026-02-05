@@ -22,6 +22,10 @@
     <string name="total_cop">Total (COP)</string>
     <string name="rate_not_found">No exchange rate for this date</string>
     <string name="manual_rate">Manual rate (USD→COP)</string>
+    <string name="rate_loading">Fetching USD→COP rate…</string>
+    <string name="rate_label">Rate: %1$.2f COP / USD</string>
+    <string name="rate_error">Couldn’t fetch rate (%1$s). Enter it manually.</string>
+    <string name="rate_attribution">Rates by ExchangeRate-API (open.er-api.com)</string>
     <string name="payment_cash">Cash</string>
     <string name="payment_card">Card</string>
     <string name="payment_transfer">Transfer</string>

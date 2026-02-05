@@ -28,7 +28,7 @@ object ServiceLocator {
     private fun createApi(): ExchangeRateApi {
         val contentType = "application/json".toMediaType()
         val retrofit = Retrofit.Builder()
-            .baseUrl("https://api.frankfurter.dev/v1/")
+            .baseUrl("https://open.er-api.com/v6/")
             .client(createOkHttpClient())
             .addConverterFactory(json.asConverterFactory(contentType))
             .build()

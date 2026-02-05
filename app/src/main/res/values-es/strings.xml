@@ -22,6 +22,10 @@
     <string name="total_cop">Total (COP)</string>
     <string name="rate_not_found">No hay tasa de cambio para esta fecha</string>
     <string name="manual_rate">Tasa manual (USD→COP)</string>
+    <string name="rate_loading">Obteniendo tasa USD→COP…</string>
+    <string name="rate_label">Tasa: %1$.2f COP / USD</string>
+    <string name="rate_error">No se pudo obtener la tasa (%1$s). Ingrésala manualmente.</string>
+    <string name="rate_attribution">Tasas por ExchangeRate-API (open.er-api.com)</string>
     <string name="payment_cash">Efectivo</string>
     <string name="payment_card">Tarjeta</string>
     <string name="payment_transfer">Transferencia</string>

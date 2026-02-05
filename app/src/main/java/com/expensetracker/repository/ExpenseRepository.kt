@@ -10,7 +10,9 @@ import com.expensetracker.network.ExchangeRateApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneOffset
 
 @Serializable
 data class ExpenseExport(
@@ -159,14 +161,23 @@ class ExpenseRepository(
         return if (paymentType == PaymentType.CARD) cardBrand else null
     }
 
+    suspend fun getUsdCopRate(date: LocalDate): Result<Double> {
+        return fetchRate(date)
+    }
+
     private suspend fun fetchRate(date: LocalDate): Result<Double> {
         return try {
-            val response = api.getUsdCopRate(date.toString())
-            val rate = response.rates["COP"]
+            val response = api.latestRates("USD")
+            if (response.result != "success") {
+                val reason = response.errorType ?: "unknown"
+                return Result.failure(IllegalStateException("API error: $reason"))
+            }
+            val rate = response.conversionRates["COP"] ?: response.rates["COP"]
             if (rate == null) {
                 Result.failure(IllegalStateException("Rate missing"))
             } else {
-                val responseDate = LocalDate.parse(response.date)
+                val responseDate = Instant.ofEpochSecond(response.timeLastUpdateUnix)
+                    .atZone(ZoneOffset.UTC).toLocalDate()
                 dao.upsertRate(ExchangeRateEntity(responseDate, rate))
                 if (responseDate != date) {
                     dao.upsertRate(ExchangeRateEntity(date, rate))

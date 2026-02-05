@@ -32,6 +32,7 @@ class MainViewModel(
     private val messageState = MutableStateFlow<String?>(null)
     private val editingIdState = MutableStateFlow<Long?>(null)
     private val editFormState = MutableStateFlow(ExpenseForm())
+    private val rateState = MutableStateFlow<RateUiState>(RateUiState.Idle)
 
     private val startDateState = MutableStateFlow(LocalDate.now())
     private val endDateState = MutableStateFlow(LocalDate.now())
@@ -41,6 +42,7 @@ class MainViewModel(
     val message: StateFlow<String?> = messageState.asStateFlow()
     val editingId: StateFlow<Long?> = editingIdState.asStateFlow()
     val editForm: StateFlow<ExpenseForm> = editFormState.asStateFlow()
+    val usdRateState: StateFlow<RateUiState> = rateState.asStateFlow()
 
     val expenses = repository.getExpenses()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -70,6 +72,7 @@ class MainViewModel(
 
     fun updateCurrency(currency: Currency) {
         formState.value = formState.value.copy(currency = currency)
+        refreshRateIfNeeded()
     }
 
     fun updatePlace(value: String) {
@@ -78,6 +81,7 @@ class MainViewModel(
 
     fun updateDate(value: LocalDate) {
         formState.value = formState.value.copy(date = value)
+        refreshRateIfNeeded()
     }
 
     fun updateDescription(value: String) {
@@ -86,6 +90,23 @@ class MainViewModel(
 
     fun updateManualRate(value: String) {
         formState.value = formState.value.copy(manualRate = value)
+    }
+
+    fun refreshRateIfNeeded() {
+        val form = formState.value
+        if (form.currency != Currency.USD) {
+            rateState.value = RateUiState.Idle
+            return
+        }
+        rateState.value = RateUiState.Loading
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = repository.getUsdCopRate(form.date)
+            rateState.value = if (result.isSuccess) {
+                RateUiState.Success(result.getOrNull() ?: 0.0)
+            } else {
+                RateUiState.Error(result.exceptionOrNull()?.message ?: "Rate unavailable")
+            }
+        }
     }
 
     fun updateEditPaymentType(type: PaymentType) {
@@ -154,6 +175,7 @@ class MainViewModel(
             } else {
                 errorState.value = null
                 formState.value = ExpenseForm()
+                rateState.value = RateUiState.Idle
             }
         }
     }
@@ -262,4 +284,11 @@ class MainViewModel(
             return MainViewModel(repository) as T
         }
     }
+}
+
+sealed class RateUiState {
+    data object Idle : RateUiState()
+    data object Loading : RateUiState()
+    data class Success(val rate: Double) : RateUiState()
+    data class Error(val message: String) : RateUiState()
 }

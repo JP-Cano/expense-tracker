@@ -18,11 +18,13 @@ To generate an APK:
 2. Install the generated APK on your Android device
 
 ## Notes on exchange rates
-This app uses the Frankfurter API to retrieve USD→COP rates:
-- Base URL: `https://api.frankfurter.dev/v1/`
-- Example: `GET /2024-01-15?base=USD&symbols=COP`
+This app uses ExchangeRate-API open access for USD→COP daily rates.
 
-If you want to switch providers or add an API key, update `ServiceLocator.kt` and/or `ExchangeRateApi.kt`.
+### Endpoints used
+- `GET https://open.er-api.com/v6/latest/USD`
+
+### Attribution
+Exchange rates provided by ExchangeRate-API (open.er-api.com).
 
 ## Export / Import
 Exports are a JSON file with a list of expense items. Importing appends items to the local database.

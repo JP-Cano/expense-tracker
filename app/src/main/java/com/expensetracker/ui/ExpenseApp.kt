@@ -2,6 +2,7 @@ package com.expensetracker.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,15 +12,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.LocalPharmacy
+import androidx.compose.material.icons.filled.Pets
+import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -35,7 +43,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -49,6 +60,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -60,12 +73,16 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.expensetracker.MainViewModel
-import com.expensetracker.RateUiState
 import com.expensetracker.R
+import com.expensetracker.RateUiState
 import com.expensetracker.data.CardBrand
 import com.expensetracker.data.Currency
 import com.expensetracker.data.PaymentType
+import com.expensetracker.data.PocketForm
+import com.expensetracker.data.UNCATEGORIZED_POCKET_ID
 import com.expensetracker.db.ExpenseEntity
+import com.expensetracker.db.PocketEntity
+import com.expensetracker.repository.ExpenseRepository.DeletePocketMode
 import java.text.NumberFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -75,9 +92,20 @@ import java.util.Locale
 @Composable
 fun ExpenseApp(viewModel: MainViewModel) {
     val navController = rememberNavController()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val message by viewModel.message.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(message) {
+        if (!message.isNullOrBlank()) {
+            snackbarHostState.showSnackbar(resolveMessage(context, message!!))
+            viewModel.clearMessage()
+        }
+    }
 
     Scaffold(
-        bottomBar = { AppBottomBar(navController) }
+        bottomBar = { AppBottomBar(navController) },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -94,12 +122,16 @@ fun ExpenseApp(viewModel: MainViewModel) {
         ) {
             NavHost(
                 navController = navController,
-                startDestination = "add",
+                startDestination = "home",
                 modifier = Modifier.weight(1f)
             ) {
+                composable("home") { HomeScreen(viewModel, navController) }
                 composable("add") { AddExpenseScreen(viewModel) }
                 composable("list") { ExpenseListScreen(viewModel) }
-                composable("totals") { TotalsScreen(viewModel) }
+                composable("pocket/{id}") { backStackEntry ->
+                    val id = backStackEntry.arguments?.getString("id")?.toLongOrNull() ?: UNCATEGORIZED_POCKET_ID
+                    PocketDetailScreen(viewModel, navController, id)
+                }
             }
         }
     }
@@ -108,9 +140,9 @@ fun ExpenseApp(viewModel: MainViewModel) {
 @Composable
 private fun AppBottomBar(navController: NavHostController) {
     val destinations = listOf(
+        NavItem("home", R.string.nav_home, Icons.Filled.BarChart),
         NavItem("add", R.string.nav_add, Icons.Filled.Add),
-        NavItem("list", R.string.nav_list, Icons.Filled.List),
-        NavItem("totals", R.string.nav_totals, Icons.Filled.BarChart)
+        NavItem("list", R.string.nav_list, Icons.AutoMirrored.Filled.List)
     )
     NavigationBar {
         val currentRoute = navController.currentBackStackEntry?.destination?.route
@@ -128,22 +160,169 @@ private fun AppBottomBar(navController: NavHostController) {
 private data class NavItem(
     val route: String,
     val label: Int,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector
+    val icon: ImageVector
 )
 
 @Composable
-private fun AddExpenseScreen(viewModel: MainViewModel) {
-    val form by viewModel.form.collectAsState()
+private fun HomeScreen(viewModel: MainViewModel, navController: NavHostController) {
+    val pockets by viewModel.pockets.collectAsState()
+    val totals by viewModel.pocketTotals.collectAsState()
+    val globalTotal by viewModel.globalMonthlyTotal.collectAsState()
+    val globalBudget by viewModel.globalBudget.collectAsState()
     val error by viewModel.errorMessage.collectAsState()
-    val rateState by viewModel.usdRateState.collectAsState()
 
-    var paymentExpanded by remember { mutableStateOf(false) }
-    var currencyExpanded by remember { mutableStateOf(false) }
-    var cardBrandExpanded by remember { mutableStateOf(false) }
+    var showPocketDialog by remember { mutableStateOf(false) }
+    var globalBudgetInput by remember { mutableStateOf(globalBudget?.monthlyBudget?.toString() ?: "") }
 
-    LaunchedEffect(form.currency, form.date) {
-        viewModel.refreshRateIfNeeded()
+    LaunchedEffect(globalBudget?.monthlyBudget) {
+        globalBudgetInput = globalBudget?.monthlyBudget?.toString() ?: ""
     }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text(text = stringResource(id = R.string.home_title), fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(text = stringResource(id = R.string.global_total_month), fontWeight = FontWeight.SemiBold)
+                    Text(text = formatCop(globalTotal), fontSize = 22.sp)
+
+                    OutlinedTextField(
+                        value = globalBudgetInput,
+                        onValueChange = { globalBudgetInput = it },
+                        label = { Text(stringResource(id = R.string.global_budget)) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { viewModel.saveGlobalBudget(globalBudgetInput) }) {
+                            Text(text = stringResource(id = R.string.save))
+                        }
+                        TextButton(onClick = { globalBudgetInput = ""; viewModel.saveGlobalBudget(null) }) {
+                            Text(text = stringResource(id = R.string.clear_budget))
+                        }
+                    }
+
+                    val remaining = (globalBudget?.monthlyBudget ?: 0.0) - globalTotal
+                    if (globalBudget?.monthlyBudget != null) {
+                        Text(
+                            text = stringResource(id = R.string.remaining_budget, formatCop(remaining)),
+                            color = if (remaining < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { viewModel.startCreatePocket(); showPocketDialog = true }) {
+                    Text(text = stringResource(id = R.string.add_pocket))
+                }
+            }
+        }
+
+        item {
+            if (error != null) {
+                Text(text = error ?: "", color = MaterialTheme.colorScheme.error)
+            }
+        }
+
+        items(pockets) { pocket ->
+            val total = totals[pocket.id] ?: 0.0
+            PocketRow(
+                pocket = pocket,
+                total = total,
+                onOpen = { navController.navigate("pocket/${pocket.id}") },
+                onEdit = { viewModel.startEditPocket(pocket); showPocketDialog = true }
+            )
+        }
+    }
+
+    if (showPocketDialog) {
+        PocketDialog(
+            form = viewModel.pocketForm.collectAsState().value,
+            onDismiss = { showPocketDialog = false },
+            onSave = {
+                val globalBudgetValue = globalBudget?.monthlyBudget
+                viewModel.savePocket(globalBudgetValue)
+                showPocketDialog = false
+            },
+            onNameChange = viewModel::updatePocketName,
+            onBudgetChange = viewModel::updatePocketBudget,
+            onColorChange = viewModel::updatePocketColor,
+            onIconChange = viewModel::updatePocketIcon
+        )
+    }
+}
+
+@Composable
+private fun PocketRow(
+    pocket: PocketEntity,
+    total: Double,
+    onOpen: () -> Unit,
+    onEdit: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = iconForName(pocket.icon),
+                contentDescription = null,
+                tint = Color(pocket.color),
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = pocket.name, fontWeight = FontWeight.SemiBold)
+                Text(text = formatCop(total), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                pocket.monthlyBudget?.let { budget ->
+                    val remaining = budget - total
+                    Text(
+                        text = stringResource(id = R.string.remaining_budget, formatCop(remaining)),
+                        color = if (remaining < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+            IconButton(onClick = onOpen) {
+                Icon(imageVector = Icons.Filled.BarChart, contentDescription = null)
+            }
+            if (!pocket.isSystem) {
+                IconButton(onClick = onEdit) {
+                    Icon(imageVector = Icons.Filled.Edit, contentDescription = null)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PocketDetailScreen(viewModel: MainViewModel, navController: NavHostController, pocketId: Long) {
+    val pockets by viewModel.pockets.collectAsState()
+    val pocket = pockets.firstOrNull { it.id == pocketId }
+    val globalTotal by viewModel.globalMonthlyTotal.collectAsState()
+    val pocketTotal by viewModel.pocketMonthlyTotal(pocketId).collectAsState(0.0)
+    val expenses by viewModel.expensesByPocket(pocketId).collectAsState(initial = emptyList())
+
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var deleteMode by remember { mutableStateOf(DeletePocketMode.MOVE_TO_UNCATEGORIZED) }
+    var reassignPocketId by remember { mutableStateOf(UNCATEGORIZED_POCKET_ID) }
 
     Column(
         modifier = Modifier
@@ -151,107 +330,240 @@ private fun AddExpenseScreen(viewModel: MainViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(text = stringResource(id = R.string.add_expense), fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = pocket?.name ?: stringResource(id = R.string.uncategorized), fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
 
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(text = stringResource(id = R.string.section_payment), fontWeight = FontWeight.SemiBold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = stringResource(id = R.string.payment_type), modifier = Modifier.width(120.dp))
-                    TextButton(onClick = { paymentExpanded = true }) {
-                        Text(text = paymentLabel(form.paymentType))
-                    }
-                    DropdownMenu(expanded = paymentExpanded, onDismissRequest = { paymentExpanded = false }) {
-                        PaymentType.values().forEach { type ->
-                            DropdownMenuItem(
-                                text = { Text(paymentLabel(type)) },
-                                onClick = {
-                                    viewModel.updatePaymentType(type)
-                                    paymentExpanded = false
-                                }
-                            )
-                        }
-                    }
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(text = stringResource(id = R.string.pocket_total_month), fontWeight = FontWeight.SemiBold)
+                Text(text = formatCop(pocketTotal), fontSize = 22.sp)
+                pocket?.monthlyBudget?.let { budget ->
+                    val remaining = budget - pocketTotal
+                    Text(
+                        text = stringResource(id = R.string.remaining_budget, formatCop(remaining)),
+                        color = if (remaining < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                    )
                 }
+                Text(text = stringResource(id = R.string.global_total_month), fontWeight = FontWeight.SemiBold)
+                Text(text = formatCop(globalTotal))
+            }
+        }
 
-                OutlinedTextField(
-                    value = form.amount,
-                    onValueChange = viewModel::updateAmount,
-                    label = { Text(stringResource(id = R.string.value)) },
-                    modifier = Modifier.fillMaxWidth()
-                )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                viewModel.startNewExpenseForPocket(pocketId)
+                navController.navigate("add")
+            }) {
+                Text(text = stringResource(id = R.string.add_expense))
+            }
+        }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = stringResource(id = R.string.currency), modifier = Modifier.width(120.dp))
-                    TextButton(onClick = { currencyExpanded = true }) {
-                        Text(text = form.currency.name)
-                    }
-                    DropdownMenu(expanded = currencyExpanded, onDismissRequest = { currencyExpanded = false }) {
-                        Currency.values().forEach { currency ->
-                            DropdownMenuItem(
-                                text = { Text(currency.name) },
-                                onClick = {
-                                    viewModel.updateCurrency(currency)
-                                    currencyExpanded = false
-                                }
-                            )
-                        }
-                    }
+        if (pocket != null && !pocket.isSystem) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { showDeleteDialog = true }) {
+                    Text(text = stringResource(id = R.string.delete_pocket))
                 }
+            }
+        }
 
-                if (form.currency == Currency.USD) {
-                    when (rateState) {
-                        RateUiState.Loading -> Text(
-                            text = stringResource(id = R.string.rate_loading),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        is RateUiState.Success -> {
-                            val rate = (rateState as RateUiState.Success).rate
-                            Text(
-                                text = stringResource(id = R.string.rate_label, rate),
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = stringResource(id = R.string.rate_attribution),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp
-                            )
-                        }
-                        is RateUiState.Error -> {
-                            val message = (rateState as RateUiState.Error).message
-                            Text(
-                                text = stringResource(id = R.string.rate_error, message),
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            OutlinedTextField(
-                                value = form.manualRate,
-                                onValueChange = viewModel::updateManualRate,
-                                label = { Text(stringResource(id = R.string.manual_rate)) },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        RateUiState.Idle -> Unit
-                    }
-                }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(expenses) { expense ->
+                ExpenseCard(expense = expense, onEdit = { viewModel.startEdit(expense) }, onDelete = { viewModel.deleteExpense(expense.id) })
+            }
+        }
+    }
 
-                if (form.paymentType == PaymentType.CARD) {
+    if (showDeleteDialog && pocket != null) {
+        DeletePocketDialog(
+            pocketName = pocket.name,
+            pockets = pockets.filter { it.id != pocket.id },
+            mode = deleteMode,
+            onModeChange = { deleteMode = it },
+            reassignPocketId = reassignPocketId,
+            onReassignChange = { reassignPocketId = it },
+            onConfirm = {
+                viewModel.deletePocket(pocket.id, deleteMode, reassignPocketId)
+                showDeleteDialog = false
+            },
+            onDismiss = { showDeleteDialog = false }
+        )
+    }
+
+    val editingId by viewModel.editingId.collectAsState()
+    val editForm by viewModel.editForm.collectAsState()
+    if (editingId != null) {
+        EditExpenseDialog(
+            form = editForm,
+            pockets = pockets,
+            onDismiss = viewModel::cancelEdit,
+            onSave = viewModel::saveEdit,
+            onPaymentChange = viewModel::updateEditPaymentType,
+            onCardBrandChange = viewModel::updateEditCardBrand,
+            onAmountChange = viewModel::updateEditAmount,
+            onCurrencyChange = viewModel::updateEditCurrency,
+            onPlaceChange = viewModel::updateEditPlace,
+            onDateChange = viewModel::updateEditDate,
+            onDescriptionChange = viewModel::updateEditDescription,
+            onManualRateChange = viewModel::updateEditManualRate,
+            onPocketChange = viewModel::updateEditPocketId
+        )
+    }
+}
+
+@Composable
+private fun AddExpenseScreen(viewModel: MainViewModel) {
+    val form by viewModel.form.collectAsState()
+    val error by viewModel.errorMessage.collectAsState()
+    val rateState by viewModel.usdRateState.collectAsState()
+    val pockets by viewModel.pockets.collectAsState()
+
+    var paymentExpanded by remember { mutableStateOf(false) }
+    var currencyExpanded by remember { mutableStateOf(false) }
+    var cardBrandExpanded by remember { mutableStateOf(false) }
+    var pocketExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(form.currency, form.date) {
+        viewModel.refreshRateIfNeeded()
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text(text = stringResource(id = R.string.add_expense), fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(text = stringResource(id = R.string.section_payment), fontWeight = FontWeight.SemiBold)
+
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = stringResource(id = R.string.card_brand), modifier = Modifier.width(120.dp))
-                        TextButton(onClick = { cardBrandExpanded = true }) {
-                            Text(text = cardBrandLabel(form.cardBrand))
+                        Text(text = stringResource(id = R.string.payment_type), modifier = Modifier.width(120.dp))
+                        TextButton(onClick = { paymentExpanded = true }) {
+                            Text(text = paymentLabel(form.paymentType))
                         }
-                        DropdownMenu(expanded = cardBrandExpanded, onDismissRequest = { cardBrandExpanded = false }) {
-                            CardBrand.values().forEach { brand ->
+                        DropdownMenu(expanded = paymentExpanded, onDismissRequest = { paymentExpanded = false }) {
+                            PaymentType.values().forEach { type ->
                                 DropdownMenuItem(
-                                    text = { Text(cardBrandLabel(brand)) },
+                                    text = { Text(paymentLabel(type)) },
                                     onClick = {
-                                        viewModel.updateCardBrand(brand)
-                                        cardBrandExpanded = false
+                                        viewModel.updatePaymentType(type)
+                                        paymentExpanded = false
                                     }
                                 )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = form.amount,
+                        onValueChange = viewModel::updateAmount,
+                        label = { Text(stringResource(id = R.string.value)) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = stringResource(id = R.string.currency), modifier = Modifier.width(120.dp))
+                        TextButton(onClick = { currencyExpanded = true }) {
+                            Text(text = form.currency.name)
+                        }
+                        DropdownMenu(expanded = currencyExpanded, onDismissRequest = { currencyExpanded = false }) {
+                            Currency.values().forEach { currency ->
+                                DropdownMenuItem(
+                                    text = { Text(currency.name) },
+                                    onClick = {
+                                        viewModel.updateCurrency(currency)
+                                        currencyExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    if (form.currency == Currency.USD) {
+                        when (rateState) {
+                            RateUiState.Loading -> Text(
+                                text = stringResource(id = R.string.rate_loading),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            is RateUiState.Success -> {
+                                val rate = (rateState as RateUiState.Success).rate
+                                Text(
+                                    text = stringResource(id = R.string.rate_label, rate),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = stringResource(id = R.string.rate_attribution),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp
+                                )
+                            }
+                            is RateUiState.Error -> {
+                                Text(
+                                    text = stringResource(id = R.string.rate_error, (rateState as RateUiState.Error).message),
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                OutlinedTextField(
+                                    value = form.manualRate,
+                                    onValueChange = viewModel::updateManualRate,
+                                    label = { Text(stringResource(id = R.string.manual_rate)) },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Text(
+                                    text = stringResource(id = R.string.rate_attribution),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp
+                                )
+                            }
+                            RateUiState.Idle -> Unit
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = stringResource(id = R.string.pocket), modifier = Modifier.width(120.dp))
+                        TextButton(onClick = { pocketExpanded = true }) {
+                            val pocketName = pockets.firstOrNull { it.id == form.pocketId }?.name
+                                ?: stringResource(id = R.string.uncategorized)
+                            Text(text = pocketName)
+                        }
+                        DropdownMenu(expanded = pocketExpanded, onDismissRequest = { pocketExpanded = false }) {
+                            pockets.forEach { pocket ->
+                                DropdownMenuItem(
+                                    text = { Text(pocket.name) },
+                                    onClick = {
+                                        viewModel.updatePocketId(pocket.id)
+                                        pocketExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    if (form.paymentType == PaymentType.CARD) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = stringResource(id = R.string.card_brand), modifier = Modifier.width(120.dp))
+                            TextButton(onClick = { cardBrandExpanded = true }) {
+                                Text(text = cardBrandLabel(form.cardBrand))
+                            }
+                            DropdownMenu(expanded = cardBrandExpanded, onDismissRequest = { cardBrandExpanded = false }) {
+                                CardBrand.values().forEach { brand ->
+                                    DropdownMenuItem(
+                                        text = { Text(cardBrandLabel(brand)) },
+                                        onClick = {
+                                            viewModel.updateCardBrand(brand)
+                                            cardBrandExpanded = false
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -259,43 +571,46 @@ private fun AddExpenseScreen(viewModel: MainViewModel) {
             }
         }
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(text = stringResource(id = R.string.section_details), fontWeight = FontWeight.SemiBold)
-                OutlinedTextField(
-                    value = form.place,
-                    onValueChange = viewModel::updatePlace,
-                    label = { Text(stringResource(id = R.string.place)) },
-                    modifier = Modifier.fillMaxWidth()
-                )
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(text = stringResource(id = R.string.section_details), fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = form.place,
+                        onValueChange = viewModel::updatePlace,
+                        label = { Text(stringResource(id = R.string.place)) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-                DatePickerField(
-                    label = stringResource(id = R.string.date),
-                    date = form.date,
-                    onDateSelected = viewModel::updateDate
-                )
+                    DatePickerField(
+                        label = stringResource(id = R.string.date),
+                        date = form.date,
+                        onDateSelected = viewModel::updateDate
+                    )
 
-                OutlinedTextField(
-                    value = form.description,
-                    onValueChange = viewModel::updateDescription,
-                    label = { Text(stringResource(id = R.string.description)) },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                    OutlinedTextField(
+                        value = form.description,
+                        onValueChange = viewModel::updateDescription,
+                        label = { Text(stringResource(id = R.string.description)) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
 
-        if (error != null) {
-            Text(text = error ?: "", color = MaterialTheme.colorScheme.error)
-            LaunchedEffect(error) {
-                viewModel.clearError()
+        item {
+            if (error != null) {
+                Text(text = error ?: "", color = MaterialTheme.colorScheme.error)
             }
         }
 
-        Button(onClick = { viewModel.saveExpense() }, modifier = Modifier.fillMaxWidth()) {
-            Text(text = stringResource(id = R.string.save))
+        item {
+            Button(onClick = { viewModel.saveExpense() }, modifier = Modifier.fillMaxWidth()) {
+                Text(text = stringResource(id = R.string.save))
+            }
         }
     }
 }
@@ -303,9 +618,9 @@ private fun AddExpenseScreen(viewModel: MainViewModel) {
 @Composable
 private fun ExpenseListScreen(viewModel: MainViewModel) {
     val expenses by viewModel.expenses.collectAsState()
-    val message by viewModel.message.collectAsState()
     val editingId by viewModel.editingId.collectAsState()
     val editForm by viewModel.editForm.collectAsState()
+    val pockets by viewModel.pockets.collectAsState()
     val context = LocalContext.current
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -341,14 +656,6 @@ private fun ExpenseListScreen(viewModel: MainViewModel) {
             }
         }
 
-        if (message != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = message ?: "", color = MaterialTheme.colorScheme.primary)
-            LaunchedEffect(message) {
-                viewModel.clearMessage()
-            }
-        }
-
         Spacer(modifier = Modifier.height(12.dp))
         if (expenses.isEmpty()) {
             Text(text = stringResource(id = R.string.no_expenses))
@@ -368,6 +675,7 @@ private fun ExpenseListScreen(viewModel: MainViewModel) {
     if (editingId != null) {
         EditExpenseDialog(
             form = editForm,
+            pockets = pockets,
             onDismiss = viewModel::cancelEdit,
             onSave = viewModel::saveEdit,
             onPaymentChange = viewModel::updateEditPaymentType,
@@ -377,7 +685,8 @@ private fun ExpenseListScreen(viewModel: MainViewModel) {
             onPlaceChange = viewModel::updateEditPlace,
             onDateChange = viewModel::updateEditDate,
             onDescriptionChange = viewModel::updateEditDescription,
-            onManualRateChange = viewModel::updateEditManualRate
+            onManualRateChange = viewModel::updateEditManualRate,
+            onPocketChange = viewModel::updateEditPocketId
         )
     }
 }
@@ -388,7 +697,10 @@ private fun ExpenseCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val copFormat = NumberFormat.getCurrencyInstance(Locale("es", "CO"))
+    val copFormat = NumberFormat.getCurrencyInstance(Locale("es", "CO")).apply {
+        maximumFractionDigits = 0
+        minimumFractionDigits = 0
+    }
     val usdFormat = NumberFormat.getCurrencyInstance(Locale.US)
 
     var confirmDelete by remember { mutableStateOf(false) }
@@ -452,53 +764,6 @@ private fun ExpenseCard(
     }
 }
 
-@Composable
-private fun TotalsScreen(viewModel: MainViewModel) {
-    val startDate by viewModel.startDate.collectAsState()
-    val endDate by viewModel.endDate.collectAsState()
-    val total by viewModel.totalBetween.collectAsState()
-
-    val copFormat = NumberFormat.getCurrencyInstance(Locale("es", "CO"))
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(text = stringResource(id = R.string.totals), fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                DatePickerField(
-                    label = stringResource(id = R.string.from),
-                    date = startDate,
-                    onDateSelected = { viewModel.setDateRange(it, endDate) }
-                )
-
-                DatePickerField(
-                    label = stringResource(id = R.string.to),
-                    date = endDate,
-                    onDateSelected = { viewModel.setDateRange(startDate, it) }
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = viewModel::quickToday) { Text(stringResource(id = R.string.quick_today)) }
-                    Button(onClick = viewModel::quickMonth) { Text(stringResource(id = R.string.quick_month)) }
-                    Button(onClick = viewModel::quickYear) { Text(stringResource(id = R.string.quick_year)) }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(text = stringResource(id = R.string.total_cop), fontWeight = FontWeight.SemiBold)
-        Text(text = copFormat.format(total), fontSize = 24.sp)
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DatePickerField(
@@ -539,30 +804,9 @@ private fun DatePickerField(
 }
 
 @Composable
-private fun paymentLabel(type: PaymentType): String {
-    return when (type) {
-        PaymentType.CASH -> stringResource(id = R.string.payment_cash)
-        PaymentType.CARD -> stringResource(id = R.string.payment_card)
-        PaymentType.TRANSFER -> stringResource(id = R.string.payment_transfer)
-        PaymentType.OTHER -> stringResource(id = R.string.payment_other)
-    }
-}
-
-@Composable
-private fun cardBrandLabel(brand: CardBrand?): String {
-    return when (brand) {
-        CardBrand.VISA -> stringResource(id = R.string.card_brand_visa)
-        CardBrand.MASTERCARD -> stringResource(id = R.string.card_brand_mastercard)
-        CardBrand.AMEX -> stringResource(id = R.string.card_brand_amex)
-        CardBrand.OTHER -> stringResource(id = R.string.card_brand_other)
-        null -> stringResource(id = R.string.card_brand_select)
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
 private fun EditExpenseDialog(
     form: com.expensetracker.data.ExpenseForm,
+    pockets: List<PocketEntity>,
     onDismiss: () -> Unit,
     onSave: () -> Unit,
     onPaymentChange: (PaymentType) -> Unit,
@@ -572,11 +816,13 @@ private fun EditExpenseDialog(
     onPlaceChange: (String) -> Unit,
     onDateChange: (LocalDate) -> Unit,
     onDescriptionChange: (String) -> Unit,
-    onManualRateChange: (String) -> Unit
+    onManualRateChange: (String) -> Unit,
+    onPocketChange: (Long) -> Unit
 ) {
     var paymentExpanded by remember { mutableStateOf(false) }
     var currencyExpanded by remember { mutableStateOf(false) }
     var cardBrandExpanded by remember { mutableStateOf(false) }
+    var pocketExpanded by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -640,6 +886,26 @@ private fun EditExpenseDialog(
                     )
                 }
 
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = stringResource(id = R.string.pocket), modifier = Modifier.width(120.dp))
+                    TextButton(onClick = { pocketExpanded = true }) {
+                        val pocketName = pockets.firstOrNull { it.id == form.pocketId }?.name
+                            ?: stringResource(id = R.string.uncategorized)
+                        Text(text = pocketName)
+                    }
+                    DropdownMenu(expanded = pocketExpanded, onDismissRequest = { pocketExpanded = false }) {
+                        pockets.forEach { pocket ->
+                            DropdownMenuItem(
+                                text = { Text(pocket.name) },
+                                onClick = {
+                                    onPocketChange(pocket.id)
+                                    pocketExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
                 if (form.paymentType == PaymentType.CARD) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(text = stringResource(id = R.string.card_brand), modifier = Modifier.width(120.dp))
@@ -688,6 +954,212 @@ private fun EditExpenseDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.cancel)) }
         }
     )
+}
+
+@Composable
+private fun PocketDialog(
+    form: PocketForm,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    onNameChange: (String) -> Unit,
+    onBudgetChange: (String) -> Unit,
+    onColorChange: (Int) -> Unit,
+    onIconChange: (String) -> Unit
+) {
+    var iconExpanded by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(id = R.string.pocket_editor)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = form.name,
+                    onValueChange = onNameChange,
+                    label = { Text(stringResource(id = R.string.pocket_name)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = form.monthlyBudget,
+                    onValueChange = onBudgetChange,
+                    label = { Text(stringResource(id = R.string.pocket_budget)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = stringResource(id = R.string.pocket_icon), modifier = Modifier.width(120.dp))
+                    TextButton(onClick = { iconExpanded = true }) {
+                        Text(text = form.icon)
+                    }
+                    DropdownMenu(expanded = iconExpanded, onDismissRequest = { iconExpanded = false }) {
+                        pocketIconOptions().forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option) },
+                                onClick = {
+                                    onIconChange(option)
+                                    iconExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ColorOption(0xFF1F2937.toInt(), form.color, onColorChange)
+                    ColorOption(0xFF0F766E.toInt(), form.color, onColorChange)
+                    ColorOption(0xFF7C3AED.toInt(), form.color, onColorChange)
+                    ColorOption(0xFFB45309.toInt(), form.color, onColorChange)
+                    ColorOption(0xFF991B1B.toInt(), form.color, onColorChange)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSave) { Text(stringResource(id = R.string.save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.cancel)) }
+        }
+    )
+}
+
+@Composable
+private fun ColorOption(color: Int, selected: Int, onSelect: (Int) -> Unit) {
+    val border = if (selected == color) BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null
+    Card(
+        modifier = Modifier.size(28.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(color)),
+        border = border,
+        onClick = { onSelect(color) }
+    ) {}
+}
+
+@Composable
+private fun DeletePocketDialog(
+    pocketName: String,
+    pockets: List<PocketEntity>,
+    mode: DeletePocketMode,
+    onModeChange: (DeletePocketMode) -> Unit,
+    reassignPocketId: Long,
+    onReassignChange: (Long) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var reassignExpanded by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(id = R.string.delete_pocket)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(text = stringResource(id = R.string.delete_pocket_confirm, pocketName))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = mode == DeletePocketMode.DELETE_EXPENSES,
+                        onClick = { onModeChange(DeletePocketMode.DELETE_EXPENSES) }
+                    )
+                    Text(text = stringResource(id = R.string.delete_pocket_expenses))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = mode == DeletePocketMode.MOVE_TO_UNCATEGORIZED,
+                        onClick = { onModeChange(DeletePocketMode.MOVE_TO_UNCATEGORIZED) }
+                    )
+                    Text(text = stringResource(id = R.string.delete_pocket_uncategorized))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = mode == DeletePocketMode.REASSIGN,
+                        onClick = { onModeChange(DeletePocketMode.REASSIGN) }
+                    )
+                    Text(text = stringResource(id = R.string.delete_pocket_reassign))
+                }
+
+                if (mode == DeletePocketMode.REASSIGN) {
+                    TextButton(onClick = { reassignExpanded = true }) {
+                        val pocketNameLabel = pockets.firstOrNull { it.id == reassignPocketId }?.name
+                            ?: stringResource(id = R.string.uncategorized)
+                        Text(text = pocketNameLabel)
+                    }
+                    DropdownMenu(expanded = reassignExpanded, onDismissRequest = { reassignExpanded = false }) {
+                        pockets.forEach { pocket ->
+                            DropdownMenuItem(
+                                text = { Text(pocket.name) },
+                                onClick = {
+                                    onReassignChange(pocket.id)
+                                    reassignExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(stringResource(id = R.string.delete)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.cancel)) }
+        }
+    )
+}
+
+@Composable
+private fun paymentLabel(type: PaymentType): String {
+    return when (type) {
+        PaymentType.CASH -> stringResource(id = R.string.payment_cash)
+        PaymentType.CARD -> stringResource(id = R.string.payment_card)
+        PaymentType.TRANSFER -> stringResource(id = R.string.payment_transfer)
+        PaymentType.QR -> stringResource(id = R.string.payment_QR)
+        PaymentType.OTHER -> stringResource(id = R.string.payment_other)
+    }
+}
+
+@Composable
+private fun cardBrandLabel(brand: CardBrand?): String {
+    return when (brand) {
+        CardBrand.VISA -> stringResource(id = R.string.card_brand_visa)
+        CardBrand.MASTERCARD -> stringResource(id = R.string.card_brand_mastercard)
+        CardBrand.AMEX -> stringResource(id = R.string.card_brand_amex)
+        CardBrand.RAPPI -> stringResource(id = R.string.card_brand_rappi)
+        CardBrand.GLOBAL66 -> stringResource(id = R.string.card_brand_global66)
+        CardBrand.OTHER -> stringResource(id = R.string.card_brand_other)
+        null -> stringResource(id = R.string.card_brand_select)
+    }
+}
+
+private fun iconForName(name: String): ImageVector {
+    return when (name) {
+        "Pets" -> Icons.Filled.Pets
+        "Restaurant" -> Icons.Filled.Restaurant
+        "ShoppingBag" -> Icons.Filled.ShoppingBag
+        "LocalPharmacy" -> Icons.Filled.LocalPharmacy
+        "FitnessCenter" -> Icons.Filled.FitnessCenter
+        else -> Icons.Filled.Category
+    }
+}
+
+private fun pocketIconOptions(): List<String> {
+    return listOf("Category", "Restaurant", "ShoppingBag", "Pets", "LocalPharmacy", "FitnessCenter")
+}
+
+private fun formatCop(value: Double): String {
+    val format = NumberFormat.getCurrencyInstance(Locale("es", "CO"))
+    format.maximumFractionDigits = 0
+    format.minimumFractionDigits = 0
+    return format.format(value)
+}
+
+private fun resolveMessage(context: android.content.Context, key: String): String {
+    val res = context.resources
+    return when (key) {
+        "expense_saved" -> res.getString(R.string.expense_saved)
+        "expense_updated" -> res.getString(R.string.expense_updated)
+        "expense_deleted" -> res.getString(R.string.expense_deleted)
+        "pocket_created" -> res.getString(R.string.pocket_created)
+        "pocket_updated" -> res.getString(R.string.pocket_updated)
+        "pocket_deleted" -> res.getString(R.string.pocket_deleted)
+        else -> key
+    }
 }
 
 private fun LocalDate.toEpochMillis(): Long {

@@ -1,8 +1,9 @@
 <resources>
     <string name="app_name">Expense Tracker</string>
+    <string name="nav_home">Home</string>
     <string name="nav_add">Add</string>
     <string name="nav_list">Expenses</string>
-    <string name="nav_totals">Totals</string>
+    <string name="home_title">Overview</string>
     <string name="add_expense">Add Expense</string>
     <string name="payment_type">Payment Type</string>
     <string name="value">Value</string>
@@ -13,7 +14,23 @@
     <string name="save">Save</string>
     <string name="expenses">Expenses</string>
     <string name="no_expenses">No expenses yet</string>
-    <string name="totals">Totals</string>
+    <string name="global_total_month">Global total expenses (month)</string>
+    <string name="pocket_total_month">Pocket total expenses (month)</string>
+    <string name="global_budget">Global budget (month)</string>
+    <string name="clear_budget">Clear budget</string>
+    <string name="remaining_budget">Remaining: %1$s</string>
+    <string name="add_pocket">Add pocket</string>
+    <string name="pocket">Pocket</string>
+    <string name="pocket_editor">Pocket</string>
+    <string name="pocket_name">Pocket name</string>
+    <string name="pocket_budget">Pocket budget (month)</string>
+    <string name="pocket_icon">Pocket icon</string>
+    <string name="delete_pocket">Delete pocket</string>
+    <string name="delete_pocket_confirm">Delete %1$s?</string>
+    <string name="delete_pocket_expenses">Delete pocket and expenses</string>
+    <string name="delete_pocket_uncategorized">Delete pocket and move to Uncategorized</string>
+    <string name="delete_pocket_reassign">Delete pocket and reassign</string>
+    <string name="uncategorized">Uncategorized</string>
     <string name="from">From</string>
     <string name="to">To</string>
     <string name="quick_today">Today</string>
@@ -29,12 +46,15 @@
     <string name="payment_cash">Cash</string>
     <string name="payment_card">Card</string>
     <string name="payment_transfer">Transfer</string>
+    <string name="payment_QR">QR</string>
     <string name="payment_other">Other</string>
     <string name="card_brand">Card Brand</string>
     <string name="card_brand_select">Select</string>
     <string name="card_brand_visa">Visa</string>
     <string name="card_brand_mastercard">Mastercard</string>
     <string name="card_brand_amex">American Express</string>
+    <string name="card_brand_rappi">Rappi</string>
+    <string name="card_brand_global66">Global66</string>
     <string name="card_brand_other">Other</string>
     <string name="card_brand_label">Card: %1$s</string>
     <string name="section_payment">Payment</string>
@@ -50,4 +70,10 @@
     <string name="export_success">Exported</string>
     <string name="import_success">Imported</string>
     <string name="import_failed">Import failed</string>
+    <string name="expense_saved">Expense saved</string>
+    <string name="expense_updated">Expense updated</string>
+    <string name="expense_deleted">Expense deleted</string>
+    <string name="pocket_created">Pocket created</string>
+    <string name="pocket_updated">Pocket updated</string>
+    <string name="pocket_deleted">Pocket deleted</string>
 </resources>

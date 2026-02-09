@@ -15,7 +15,24 @@ data class ExpenseEntity(
     val rateUsed: Double?,
     val place: String,
     val date: LocalDate,
-    val description: String
+    val description: String,
+    val pocketId: Long
+)
+
+@Entity(tableName = "pockets")
+data class PocketEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val color: Int,
+    val icon: String,
+    val monthlyBudget: Double?,
+    val isSystem: Boolean
+)
+
+@Entity(tableName = "global_budget")
+data class GlobalBudgetEntity(
+    @PrimaryKey val id: Int = 1,
+    val monthlyBudget: Double?
 )
 
 @Entity(tableName = "exchange_rates")

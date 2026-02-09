@@ -5,20 +5,25 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.expensetracker.data.Currency
 import com.expensetracker.data.CardBrand
+import com.expensetracker.data.Currency
 import com.expensetracker.data.ExpenseForm
 import com.expensetracker.data.PaymentType
+import com.expensetracker.data.PocketForm
 import com.expensetracker.db.ExpenseEntity
+import com.expensetracker.db.GlobalBudgetEntity
+import com.expensetracker.db.PocketEntity
 import com.expensetracker.repository.ExpenseRepository
+import com.expensetracker.repository.ExpenseRepository.DeletePocketMode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -27,6 +32,12 @@ class MainViewModel(
     private val repository: ExpenseRepository
 ) : ViewModel() {
 
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.ensureDefaultPocket()
+        }
+    }
+
     private val formState = MutableStateFlow(ExpenseForm())
     private val errorState = MutableStateFlow<String?>(null)
     private val messageState = MutableStateFlow<String?>(null)
@@ -34,8 +45,10 @@ class MainViewModel(
     private val editFormState = MutableStateFlow(ExpenseForm())
     private val rateState = MutableStateFlow<RateUiState>(RateUiState.Idle)
 
-    private val startDateState = MutableStateFlow(LocalDate.now())
-    private val endDateState = MutableStateFlow(LocalDate.now())
+    private val editingPocketIdState = MutableStateFlow<Long?>(null)
+    private val pocketFormState = MutableStateFlow(PocketForm())
+
+    private val monthRangeState = MutableStateFlow(currentMonthRange())
 
     val form: StateFlow<ExpenseForm> = formState.asStateFlow()
     val errorMessage: StateFlow<String?> = errorState.asStateFlow()
@@ -44,18 +57,34 @@ class MainViewModel(
     val editForm: StateFlow<ExpenseForm> = editFormState.asStateFlow()
     val usdRateState: StateFlow<RateUiState> = rateState.asStateFlow()
 
+    val pocketForm: StateFlow<PocketForm> = pocketFormState.asStateFlow()
+
+    val pockets = repository.getPockets()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val globalBudget = repository.getGlobalBudget()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), GlobalBudgetEntity(1, null))
+
     val expenses = repository.getExpenses()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val dateRange: Flow<Pair<LocalDate, LocalDate>> =
-        combine(startDateState, endDateState) { start, end -> start to end }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val pocketTotals = monthRangeState
+        .flatMapLatest { (start, end) -> repository.getPocketTotalsBetween(start, end) }
+        .map { list -> list.associate { it.pocketId to it.total } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    val totalBetween: StateFlow<Double> = dateRange
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val globalMonthlyTotal = monthRangeState
         .flatMapLatest { (start, end) -> repository.getTotalBetween(start, end) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val startDate: StateFlow<LocalDate> = startDateState.asStateFlow()
-    val endDate: StateFlow<LocalDate> = endDateState.asStateFlow()
+    fun expensesByPocket(pocketId: Long): Flow<List<ExpenseEntity>> =
+        repository.getExpensesByPocket(pocketId)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun pocketMonthlyTotal(pocketId: Long): Flow<Double> = monthRangeState
+        .flatMapLatest { (start, end) -> repository.getPocketTotalBetween(pocketId, start, end) }
 
     fun updatePaymentType(type: PaymentType) {
         val brand = if (type == PaymentType.CARD) formState.value.cardBrand else null
@@ -90,6 +119,15 @@ class MainViewModel(
 
     fun updateManualRate(value: String) {
         formState.value = formState.value.copy(manualRate = value)
+    }
+
+    fun updatePocketId(value: Long) {
+        formState.value = formState.value.copy(pocketId = value)
+    }
+
+    fun startNewExpenseForPocket(pocketId: Long) {
+        formState.value = ExpenseForm(pocketId = pocketId)
+        rateState.value = RateUiState.Idle
     }
 
     fun refreshRateIfNeeded() {
@@ -142,29 +180,8 @@ class MainViewModel(
         editFormState.value = editFormState.value.copy(manualRate = value)
     }
 
-    fun setDateRange(start: LocalDate, end: LocalDate) {
-        if (start.isAfter(end)) {
-            startDateState.value = end
-            endDateState.value = start
-        } else {
-            startDateState.value = start
-            endDateState.value = end
-        }
-    }
-
-    fun quickToday() {
-        val today = LocalDate.now()
-        setDateRange(today, today)
-    }
-
-    fun quickMonth() {
-        val now = LocalDate.now()
-        setDateRange(now.withDayOfMonth(1), now)
-    }
-
-    fun quickYear() {
-        val now = LocalDate.now()
-        setDateRange(now.withDayOfYear(1), now)
+    fun updateEditPocketId(value: Long) {
+        editFormState.value = editFormState.value.copy(pocketId = value)
     }
 
     fun saveExpense() {
@@ -176,6 +193,7 @@ class MainViewModel(
                 errorState.value = null
                 formState.value = ExpenseForm()
                 rateState.value = RateUiState.Idle
+                messageState.value = "expense_saved"
             }
         }
     }
@@ -190,7 +208,8 @@ class MainViewModel(
             place = expense.place,
             date = expense.date,
             description = expense.description,
-            manualRate = expense.rateUsed?.toString() ?: ""
+            manualRate = expense.rateUsed?.toString() ?: "",
+            pocketId = expense.pocketId
         )
     }
 
@@ -208,6 +227,7 @@ class MainViewModel(
             } else {
                 errorState.value = null
                 cancelEdit()
+                messageState.value = "expense_updated"
             }
         }
     }
@@ -215,6 +235,80 @@ class MainViewModel(
     fun deleteExpense(id: Long) {
         viewModelScope.launch(Dispatchers.IO) {
             repository.deleteExpense(id)
+            messageState.value = "expense_deleted"
+        }
+    }
+
+    fun startCreatePocket() {
+        editingPocketIdState.value = null
+        pocketFormState.value = PocketForm()
+    }
+
+    fun startEditPocket(pocket: PocketEntity) {
+        if (pocket.isSystem) return
+        editingPocketIdState.value = pocket.id
+        pocketFormState.value = PocketForm(
+            name = pocket.name,
+            color = pocket.color,
+            icon = pocket.icon,
+            monthlyBudget = pocket.monthlyBudget?.toString() ?: ""
+        )
+    }
+
+    fun updatePocketName(value: String) {
+        pocketFormState.value = pocketFormState.value.copy(name = value)
+    }
+
+    fun updatePocketColor(value: Int) {
+        pocketFormState.value = pocketFormState.value.copy(color = value)
+    }
+
+    fun updatePocketIcon(value: String) {
+        pocketFormState.value = pocketFormState.value.copy(icon = value)
+    }
+
+    fun updatePocketBudget(value: String) {
+        pocketFormState.value = pocketFormState.value.copy(monthlyBudget = value)
+    }
+
+    fun savePocket(globalBudgetValue: Double?) {
+        val form = pocketFormState.value
+        val budget = form.monthlyBudget.toDoubleOrNull()
+        if (form.name.isBlank()) {
+            errorState.value = "Pocket name required"
+            return
+        }
+        if (globalBudgetValue != null && budget != null && budget > globalBudgetValue) {
+            errorState.value = "Pocket budget exceeds global budget"
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val pocketId = editingPocketIdState.value
+            if (pocketId == null) {
+                repository.createPocket(form)
+                messageState.value = "pocket_created"
+            } else {
+                val current = repository.getPocketById(pocketId)
+                if (current != null) {
+                    repository.updatePocket(current, form)
+                    messageState.value = "pocket_updated"
+                }
+            }
+            editingPocketIdState.value = null
+        }
+    }
+
+    fun deletePocket(pocketId: Long, mode: DeletePocketMode, targetPocketId: Long? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deletePocket(pocketId, mode, targetPocketId)
+            messageState.value = "pocket_deleted"
+        }
+    }
+
+    fun saveGlobalBudget(value: String?) {
+        val amount = value?.toDoubleOrNull()
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.upsertGlobalBudget(amount)
         }
     }
 
@@ -240,10 +334,6 @@ class MainViewModel(
                 "Import failed"
             }
         }
-    }
-
-    fun clearError() {
-        errorState.value = null
     }
 
     fun clearMessage() {
@@ -291,4 +381,9 @@ sealed class RateUiState {
     data object Loading : RateUiState()
     data class Success(val rate: Double) : RateUiState()
     data class Error(val message: String) : RateUiState()
+}
+
+private fun currentMonthRange(): Pair<LocalDate, LocalDate> {
+    val now = LocalDate.now()
+    return now.withDayOfMonth(1) to now.withDayOfMonth(now.lengthOfMonth())
 }

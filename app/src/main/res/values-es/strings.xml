@@ -1,8 +1,9 @@
 <resources>
     <string name="app_name">Control de Gastos</string>
+    <string name="nav_home">Inicio</string>
     <string name="nav_add">Agregar</string>
     <string name="nav_list">Gastos</string>
-    <string name="nav_totals">Totales</string>
+    <string name="home_title">Resumen</string>
     <string name="add_expense">Agregar Gasto</string>
     <string name="payment_type">Tipo de Pago</string>
     <string name="value">Valor</string>
@@ -13,7 +14,23 @@
     <string name="save">Guardar</string>
     <string name="expenses">Gastos</string>
     <string name="no_expenses">Aún no hay gastos</string>
-    <string name="totals">Totales</string>
+    <string name="global_total_month">Total global (mes)</string>
+    <string name="pocket_total_month">Total del bolsillo (mes)</string>
+    <string name="global_budget">Presupuesto global (mes)</string>
+    <string name="clear_budget">Limpiar presupuesto</string>
+    <string name="remaining_budget">Restante: %1$s</string>
+    <string name="add_pocket">Agregar bolsillo</string>
+    <string name="pocket">Bolsillo</string>
+    <string name="pocket_editor">Bolsillo</string>
+    <string name="pocket_name">Nombre del bolsillo</string>
+    <string name="pocket_budget">Presupuesto del bolsillo (mes)</string>
+    <string name="pocket_icon">Ícono del bolsillo</string>
+    <string name="delete_pocket">Eliminar bolsillo</string>
+    <string name="delete_pocket_confirm">¿Eliminar %1$s?</string>
+    <string name="delete_pocket_expenses">Eliminar bolsillo y gastos</string>
+    <string name="delete_pocket_uncategorized">Eliminar bolsillo y mover a Sin categoría</string>
+    <string name="delete_pocket_reassign">Eliminar bolsillo y reasignar</string>
+    <string name="uncategorized">Sin categoría</string>
     <string name="from">Desde</string>
     <string name="to">Hasta</string>
     <string name="quick_today">Hoy</string>
@@ -29,11 +46,14 @@
     <string name="payment_cash">Efectivo</string>
     <string name="payment_card">Tarjeta</string>
     <string name="payment_transfer">Transferencia</string>
+    <string name="payment_QR">QR</string>
     <string name="payment_other">Otro</string>
     <string name="card_brand">Marca de Tarjeta</string>
     <string name="card_brand_select">Seleccionar</string>
     <string name="card_brand_visa">Visa</string>
     <string name="card_brand_mastercard">Mastercard</string>
+    <string name="card_brand_rappi">Rappi</string>
+    <string name="card_brand_global66">Global66</string>
     <string name="card_brand_amex">American Express</string>
     <string name="card_brand_other">Otro</string>
     <string name="card_brand_label">Tarjeta: %1$s</string>
@@ -50,4 +70,10 @@
     <string name="export_success">Exportado</string>
     <string name="import_success">Importado</string>
     <string name="import_failed">Importación fallida</string>
+    <string name="expense_saved">Gasto guardado</string>
+    <string name="expense_updated">Gasto actualizado</string>
+    <string name="expense_deleted">Gasto eliminado</string>
+    <string name="pocket_created">Bolsillo creado</string>
+    <string name="pocket_updated">Bolsillo actualizado</string>
+    <string name="pocket_deleted">Bolsillo eliminado</string>
 </resources>
